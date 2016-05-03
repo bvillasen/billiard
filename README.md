@@ -1,2 +1,2 @@
 # billiard
-A chaotic billiard in Julia and CUDA
+A chaotic billiard coded in Julia and CUDA
