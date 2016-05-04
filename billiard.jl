@@ -1,6 +1,3 @@
-# using CUDA
-# using PyCall
-# using PyPlot
 using HDF5
 push!(LOAD_PATH, "/home/bruno/Desktop/Dropbox/Developer/billiard/modules")
 using tools
@@ -8,45 +5,111 @@ using vector2D
 using circle_module
 using line_module
 
+
+srand(1234)
 println("\nBilliard")
 
-const nParticles = 1000
+const nParticles = 1024
 const nSnapshots = 100
-const iterPerSnapshot = 50
-const timePerSnapshot = 5
+const iterPerSnapshot = 500
+const timePerSnapshot = 50
+usingCUDA = false
+
+for option in ARGS
+  if ( option == "cuda" ) usingCUDA = true
+  end
+end
 
 #Define the geometry of the billiard
+const nCircles = Int32( 1 )
 circle = Circle( 0.48, Vector2D(0,0) )
+const nLines = Int32( 4 )
 lines = [
-  Line( Vector2D( 0.5,    0 ), Vector2D(  1,  0 ), 3 ),  #right
-  Line( Vector2D(   0, -0.5 ), Vector2D(  0, -1 ), 4 ),   #down
-  Line( Vector2D(-0.5,    0 ), Vector2D( -1,  0 ), 1 ),  #left
-  Line( Vector2D(   0,  0.5 ), Vector2D(  0,  1 ), 2 )   #up
+  Line( Vector2D( 0.5,    0 ), Vector2D(  1,  0 ) ),  #right
+  Line( Vector2D(   0, -0.5 ), Vector2D(  0, -1 ) ),   #down
+  Line( Vector2D(-0.5,    0 ), Vector2D( -1,  0 ) ),  #left
+  Line( Vector2D(   0,  0.5 ), Vector2D(  0,  1 ) )   #up
 ]
+#Arrays to send circle and lines properties to device
+circleProperties = [ circle.r, circle.center.x, circle.center.y ]
+linesProperties = Float64[]
+for line in lines
+  push!( linesProperties, line.center.x ); push!( linesProperties, line.center.y )
+  push!( linesProperties, line.normal.x ); push!( linesProperties, line.normal.y )
+end
 
-# posData = zeros(nSnapshots+1, nParticles, 2)
-posSnapshot = zeros(nSnapshots+1, nParticles, 2)
+
+println("\nInitializing host data...")
+# posData = zeros( Float32, (nSnapshots+1, nParticles, 2 ))
+posSnapshot = zeros(Float32, (nSnapshots+1, nParticles, 2) )
 
 pos_x_all = 0.01 * rand( nParticles ) + 0.485
 pos_y_all = zeros( nParticles )
 theta_all = 2*pi*rand( nParticles )
 vel_x_all = cos( theta_all )
 vel_y_all = sin( theta_all )
-region_x_all = zeros( nParticles )
-region_y_all = zeros( nParticles )
-collideWith_all = -1 * ones( Int, nParticles)
-times_all = zeros( nParticles )
-snapshotNumber_all = ones( Int, nParticles )
+region_x_all = zeros( Int32, nParticles )
+region_y_all = zeros( Int32, nParticles )
+collideWith_all = -1 * ones( Int32, nParticles)
+times_all = zeros( Float64, nParticles )
+snapshotNumber_all = ones( Int32, nParticles )
 
+if usingCUDA
+  println("\nUsing CUDA" )
+  using CUDA
 
+  #Select a CUDA device
+  # list_devices()
+  dev = CuDevice(0)
+  #Create a context (like a process in CPU) on the selected device
+  ctx = create_context(dev)
 
+  println("Initializing device data...")
+  pos_x_all_d = CuArray( pos_x_all )
+  pos_y_all_d = CuArray( pos_y_all )
+  vel_x_all_d = CuArray( vel_x_all )
+  vel_y_all_d = CuArray( vel_y_all )
+  region_x_all_d = CuArray( region_x_all )
+  region_y_all_d = CuArray( region_y_all )
+  collideWith_all_d = CuArray( collideWith_all )
+  times_all_d = CuArray( times_all )
+  snapshotNumber_all_d = CuArray( snapshotNumber_all )
+  circleProperties_d = CuArray( circleProperties )
+  linesProperties_d = CuArray( linesProperties )
+  posData_x_all = zeros( Float32, (nSnapshots, nParticles) )
+  posData_y_all = zeros( Float32, (nSnapshots, nParticles) )
+  posData_x_all_d = CuArray( posData_x_all )
+  posData_y_all_d = CuArray( posData_y_all )
+  #Compile and load CUDA code
+  println( "Compiling CUDA code..." )
+  run(`nvcc -ptx cuda_files/billiard_kernels.cu`)
+  cudaModule = CuModule("billiard_kernels.ptx")
 
+  #Extract cuda funtions
+  billiard_kernel_cuda = CuFunction( cudaModule, "billiard_kernel")
 
-#Save initial conditions
-# posData[1, :, 1] = pos_x_all
-# posData[1, :, 2] = pos_y_all
-posSnapshot[1, :, 1] = pos_x_all
-posSnapshot[1, :, 2] = pos_y_all
+  #Set threadBlock and blockGrid
+  cudaBlock = 512  #Number of threads per block
+  div = divrem( nParticles, cudaBlock )
+  cudaGrid = div[1] + 1*(div[2]>0)  #Number of blocks in the grid (Protected for nParticles non-multiple of threadsPerBlock)
+  println( " Threads per block: $cudaBlock\n Blocks in grid: $cudaGrid    ( nPartcles / threadsPerBlock )")
+
+  function billiard_step_cuda( snapshotNumber )
+    #Launch cuda kernel: kernel_name, blocksPerGrid, threadsPerBlock, kernelArguments
+    CUDA.launch( billiard_kernel_cuda, cudaGrid,  cudaBlock,
+      ( nParticles, iterPerSnapshot, Int32(nSnapshots), Float32( timePerSnapshot ),
+      nCircles, circleProperties_d,
+      nLines, linesProperties_d, pos_x_all_d, pos_y_all_d,
+      vel_x_all_d, vel_y_all_d, region_x_all_d, region_y_all_d,
+      collideWith_all_d, times_all_d, snapshotNumber_all_d,
+      posData_x_all_d, posData_y_all_d ) )
+  end
+end
+
+posInitial_x = map( x->Float32(x), pos_x_all )
+posInitial_y = map( x->Float32(x), pos_y_all )
+posSnapshot[1, :, 1] = posInitial_x
+posSnapshot[1, :, 2] = posInitial_y
 
 function billiard_kernel()
   for i in 1:nParticles
@@ -67,21 +130,18 @@ function billiard_kernel()
         if line_counter == collideWith_current
           continue
         end
-        time = line_module.collideTime( line, pos, vel )
-        if time < 0
-          continue
-        end
-        if time < timeMin
-          timeMin = time
+        time_current = line_module.collideTime( line, pos, vel )
+        if ( ( time_current > 0 ) &&  (time_current < timeMin ) )
+          timeMin = time_current
           collideWith_current = line_counter
         end
       end
 
-      #Chech for collision with circle
+      #Check for collision with circle
       if collideWith_last != 0
-        time = circle_module.collideTime( circle, pos, vel )
-        if ( time < timeMin ) && ( time > 0 )
-          timeMin = time
+        time_current = circle_module.collideTime( circle, pos, vel )
+        if ( time_current < timeMin ) && ( time_current > 0 )
+          timeMin = time_current
           collideWith_current = 0
         end
       end
@@ -96,8 +156,8 @@ function billiard_kernel()
         snapshotNumber += 1
         if snapshotNumber <= nSnapshots+1
           pos_snap = (pos + region) - dt*vel
-          posSnapshot[snapshotNumber, i, 1] = pos_snap.x
-          posSnapshot[snapshotNumber, i, 2] = pos_snap.y
+          posSnapshot[snapshotNumber, i, 1] = Float32( pos_snap.x )
+          posSnapshot[snapshotNumber, i, 2] = Float32( pos_snap.y )
         end
       end
 
@@ -126,35 +186,43 @@ function billiard_kernel()
 end
 
 outDir = ""
-outFileName = "data_billard.h5"
+outFileName = usingCUDA ? "data_billard_cuda.h5" : "data_billard_julia.h5"
 file = h5open( outDir * outFileName, "w")
-
-
-
 
 println( "\nnParticles: $nParticles \nnSnapshots: $nSnapshots \nnIterations per snapshot: $iterPerSnapshot \nOutput: $(outDir*outFileName)\n" )
 println( "Starting $(nSnapshots*iterPerSnapshot) iterations...\n")
 
-
 time_compute = 0
 for stepNumber in 1:nSnapshots
   printProgress( stepNumber-1, nSnapshots, time_compute )
-  time_compute += @elapsed billiard_kernel()
+  if usingCUDA
+    billiard_step_cuda( stepNumber+1 )
+  else
+    time_compute += @elapsed billiard_kernel()
+  end
 end
 printProgress( nSnapshots, nSnapshots, time_compute )
 
 println( "\n\nTotal Time: $(time_compute) secs" )
 println( "Compute Time: $(time_compute) secs\n" )
 
+if usingCUDA
+  copy!(posData_x_all, posData_x_all_d )
+  copy!(posData_y_all, posData_y_all_d )
+  posSnapshot[2:end,:,1] = posData_x_all
+  posSnapshot[2:end,:,2] = posData_y_all
+end
 
-# write( file, "pos_iter", posData)
+#Write positions data to h5 file
 write( file, "pos_snap", posSnapshot)
+close(file)
+
+
+
 # group = g_create(file, "")
 # data = d_create( file, "pos", Float64, (nParticles,2), "chunk" , (100,2) )
 # # d = d_create(g, "foo", datatype(Float64), ((10,20),(100,200)), "chunk", (1,1)))
 # # data = d_c
-close(file)
-
 
 # file = h5open("data_billard.h5", "r")
 #
