@@ -1,24 +1,38 @@
 using HDF5
-push!(LOAD_PATH, "/home/bruno/Desktop/Dropbox/Developer/billiard/modules")
+current_dir = pwd()
+modules_dir = current_dir * "/modules"
+push!(LOAD_PATH, modules_dir)
 using tools
-using vector2D
+using vector2D_module
 using circle_module
 using line_module
 
 
-srand(1234)
+# srand(1234)
 println("\nBilliard")
 
-const nParticles = 1024
-const nSnapshots = 100
-const iterPerSnapshot = 500
-const timePerSnapshot = 50
+nParticles_def = 1024
+nSnapshots_def = 100
+iterPerSnapshot_def = 10
+timePerSnapshot_def = 10
 usingCUDA = false
 
 for option in ARGS
   if ( option == "cuda" ) usingCUDA = true
+  elseif findInArgument( option, "n_part")[1] nParticles_def = getIntFromArgument( option, "n_part")
+  elseif findInArgument( option, "n_snap")[1] nSnapshots_def = getIntFromArgument( option, "n_snap")
+  elseif findInArgument( option, "iter_per_snap")[1] iterPerSnapshot_def = getIntFromArgument( option, "iter_per_snap")
+  elseif findInArgument( option, "time_per_snap")[1] timePerSnapshot_def = getIntFromArgument( option, "time_per_snap")
   end
 end
+
+const nParticles = nParticles_def
+const nSnapshots = nSnapshots_def
+const iterPerSnapshot = iterPerSnapshot_def
+const timePerSnapshot = timePerSnapshot_def
+
+
+
 
 #Define the geometry of the billiard
 const nCircles = Int32( 1 )
@@ -64,7 +78,22 @@ if usingCUDA
   #Create a context (like a process in CPU) on the selected device
   ctx = create_context(dev)
 
-  println("Initializing device data...")
+  #Compile and load CUDA code
+  println( "\nCompiling CUDA code..." )
+  run(`nvcc -ptx cuda_files/billiard_kernels.cu`)
+  cudaModule = CuModule("billiard_kernels.ptx")
+
+  #Extract cuda funtions
+  billiard_kernel_cuda = CuFunction( cudaModule, "billiard_kernel")
+  # cuda_event_syncronize = CuFunction( cudaModule, "event_syncronize")
+
+  #Set threadBlock and blockGrid
+  cudaBlock = 512  #Number of threads per block
+  div = divrem( nParticles, cudaBlock )
+  cudaGrid = div[1] + 1*(div[2]>0)  #Number of blocks in the grid (Protected for nParticles non-multiple of threadsPerBlock)
+  println( " Threads per block: $cudaBlock\n Blocks in grid: $cudaGrid    ( nPartcles / threadsPerBlock )")
+
+  println("\nInitializing device data...")
   pos_x_all_d = CuArray( pos_x_all )
   pos_y_all_d = CuArray( pos_y_all )
   vel_x_all_d = CuArray( vel_x_all )
@@ -80,19 +109,6 @@ if usingCUDA
   posData_y_all = zeros( Float32, (nSnapshots, nParticles) )
   posData_x_all_d = CuArray( posData_x_all )
   posData_y_all_d = CuArray( posData_y_all )
-  #Compile and load CUDA code
-  println( "Compiling CUDA code..." )
-  run(`nvcc -ptx cuda_files/billiard_kernels.cu`)
-  cudaModule = CuModule("billiard_kernels.ptx")
-
-  #Extract cuda funtions
-  billiard_kernel_cuda = CuFunction( cudaModule, "billiard_kernel")
-
-  #Set threadBlock and blockGrid
-  cudaBlock = 512  #Number of threads per block
-  div = divrem( nParticles, cudaBlock )
-  cudaGrid = div[1] + 1*(div[2]>0)  #Number of blocks in the grid (Protected for nParticles non-multiple of threadsPerBlock)
-  println( " Threads per block: $cudaBlock\n Blocks in grid: $cudaGrid    ( nPartcles / threadsPerBlock )")
 
   function billiard_step_cuda( snapshotNumber )
     #Launch cuda kernel: kernel_name, blocksPerGrid, threadsPerBlock, kernelArguments
@@ -103,6 +119,9 @@ if usingCUDA
       vel_x_all_d, vel_y_all_d, region_x_all_d, region_y_all_d,
       collideWith_all_d, times_all_d, snapshotNumber_all_d,
       posData_x_all_d, posData_y_all_d ) )
+
+    #Small data transfer to syncronize divevice with host and measure time.
+    copy!( circleProperties, circleProperties_d )
   end
 end
 
@@ -189,14 +208,14 @@ outDir = ""
 outFileName = usingCUDA ? "data_billard_cuda.h5" : "data_billard_julia.h5"
 file = h5open( outDir * outFileName, "w")
 
-println( "\nnParticles: $nParticles \nnSnapshots: $nSnapshots \nnIterations per snapshot: $iterPerSnapshot \nOutput: $(outDir*outFileName)\n" )
+println( "\nnParticles: $nParticles \nnSnapshots: $nSnapshots \nIterations per snapshot: $iterPerSnapshot \nTime per snapshot: $timePerSnapshot \nOutput: $(outDir*outFileName)\n" )
 println( "Starting $(nSnapshots*iterPerSnapshot) iterations...\n")
 
 time_compute = 0
 for stepNumber in 1:nSnapshots
   printProgress( stepNumber-1, nSnapshots, time_compute )
   if usingCUDA
-    billiard_step_cuda( stepNumber+1 )
+    time_compute += @elapsed billiard_step_cuda( stepNumber+1 )
   else
     time_compute += @elapsed billiard_kernel()
   end
