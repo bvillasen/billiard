@@ -28,18 +28,18 @@ You can set the main parameters from the command line when you run the billiard 
 * **n_part**:  Number of particles
 * **n_snap**:  Number of snapshots
 * **iter_per_snap**:  Number of iterations each particle will do per snapshot
-* **time_per_snap**:  Time ( or distance ) each particle will advance to save it's position for each snapshot
+* **time_per_save**:  Time ( or distance ) each particle will advance to save it's position; at most **n_snap** times the position will be saved for each particle.
 
 For example to run with the next parameters: 1024 particles, 100 snapshots, 100 iterations per snapshot and a time per snapshot equal to 20 use:
 ```
-$ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_snap=20
+$ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_save=20
 ```
 
 The order of the keywords makes no difference.
 
 To run the CUDA enhanced version add the keyword **cuda**, for example:
 ```
-$ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_snap=20 cuda
+$ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_save=20 cuda
 ```
 
 ##Benchmarks
@@ -47,7 +47,7 @@ For the next set of parameters:
 * **n_part** = 10240
 * **n_snap** = 100
 * **iter_per_snap** = 1000
-* **time_per_snap** = 100
+* **time_per_save** = 100
 * Total iterations per particle = n_snap * iter_per_snap = 100000
 
 An i7 Intel ( 2.2 GHz ) took  19 min  ( 1140 secs )  (single core implementation ).
