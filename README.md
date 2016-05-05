@@ -24,13 +24,13 @@ To run the billiard code in default ( non-CUDA ) mode:
 ```
 $ julia billiard.jl
 ```
-You can set the main parameters from the command line when you run the billiard code to do this use the keywords:
+You can set the main parameters from the command line when you run the billiard code, to do this use the keywords:
 * **n_part**:  Number of particles
 * **n_snap**:  Number of snapshots
 * **iter_per_snap**:  Number of iterations each particle will do per snapshot
 * **time_per_save**:  Time ( or distance ) each particle will advance to save it's position; at most **n_snap** times the position will be saved for each particle.
 
-For example to run with the next parameters: 1024 particles, 100 snapshots, 100 iterations per snapshot and a time per snapshot equal to 20 use:
+For example to run with the next parameters: 1024 particles, 100 snapshots, 100 iterations per snapshot and a time per save equal to 20 use:
 ```
 $ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_save=20
 ```
