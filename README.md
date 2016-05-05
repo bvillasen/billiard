@@ -51,6 +51,9 @@ For the next set of parameters:
 * Total iterations per particle = n_snap * iter_per_snap = 100000
 
 An i7 Intel ( 2.2 GHz ) took  19 min  ( 1140 secs )  (single core implementation ).
+
 An old and small laptop GPU ( GT 260M, 96 cores  ) took 16 secs.
+
 A GTX TITAN ( 2688 cores ) took 1.2 secs.
+
 **CONCLUSION: Get a GPU and start using it now!**
