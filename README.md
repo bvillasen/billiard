@@ -35,7 +35,7 @@ For example to run with the next parameters: 1024 particles, 100 snapshots, 100 
 $ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_save=20
 ```
 
-The order of the keywords makes no difference.
+The order of the keywords makes no difference. USE ONLY INTEGERS
 
 To run the CUDA enhanced version add the keyword **cuda**, for example:
 ```
