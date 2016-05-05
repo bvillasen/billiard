@@ -41,3 +41,16 @@ To run the CUDA enhanced version add the keyword **cuda**, for example:
 ```
 $ julia billiard.jl n_part=1024 n_snap=100 iter_per_snap=100 time_per_snap=20 cuda
 ```
+
+##Benchmarks
+For the next set of parameters:
+* **n_part** = 10240
+* **n_snap** = 100
+* **iter_per_snap** = 1000
+* **time_per_snap** = 100
+* Total iterations per particle = n_snap * iter_per_snap = 100000
+
+An i7 Intel ( 2.2 GHz ) took  19 min  ( 1140 secs )  (single core implementation ).
+An old and small laptop GPU ( GT 260M, 96 cores  ) took 16 secs.
+A GTX TITAN ( 2688 cores ) took 1.2 secs.
+**CONCLUSION: Get a GPU and start using it now!**
