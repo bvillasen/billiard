@@ -9,13 +9,13 @@ using line_module
 using billiard_module
 
 
-# srand(1234)
+srand(1234)
 println("\nBilliard")
 
-nParticles_def = 1024
+nParticles_def = 1024 * 10
 nSnapshots_def = 100
-iterPerSnapshot_def = 100
-timePerSnapshot_def = 10
+iterPerSnapshot_def = 1000
+timePerSave_def = 100
 usingCUDA = false
 
 for option in ARGS
@@ -23,14 +23,14 @@ for option in ARGS
   elseif findInArgument( option, "n_part")[1] nParticles_def = getIntFromArgument( option, "n_part")
   elseif findInArgument( option, "n_snap")[1] nSnapshots_def = getIntFromArgument( option, "n_snap")
   elseif findInArgument( option, "iter_per_snap")[1] iterPerSnapshot_def = getIntFromArgument( option, "iter_per_snap")
-  elseif findInArgument( option, "time_per_snap")[1] timePerSnapshot_def = getIntFromArgument( option, "time_per_snap")
+  elseif findInArgument( option, "time_per_save")[1] timePerSave_def = getIntFromArgument( option, "time_per_save")
   end
 end
 
 const nParticles = nParticles_def
 const nSnapshots = nSnapshots_def
 const iterPerSnapshot = iterPerSnapshot_def
-const timePerSnapshot = timePerSnapshot_def
+const timePerSave = timePerSave_def
 
 
 
@@ -113,7 +113,7 @@ if usingCUDA
   function billiard_step_cuda( snapshotNumber )
     #Launch cuda kernel: kernel_name, blocksPerGrid, threadsPerBlock, kernelArguments
     CUDA.launch( billiard_kernel_cuda, cudaGrid,  cudaBlock,
-      ( nParticles, iterPerSnapshot, Int32(nSnapshots), Float32( timePerSnapshot ),
+      ( nParticles, iterPerSnapshot, Int32(nSnapshots), Float32( timePerSave ),
       nCircles, circleProperties_d,
       nLines, linesProperties_d, pos_x_all_d, pos_y_all_d,
       vel_x_all_d, vel_y_all_d, region_x_all_d, region_y_all_d,
@@ -136,7 +136,7 @@ outDir = ""
 outFileName = usingCUDA ? "data_billard_cuda.h5" : "data_billard_julia.h5"
 file = h5open( outDir * outFileName, "w")
 
-println( "\nnParticles: $nParticles \nnSnapshots: $nSnapshots \nIterations per snapshot: $iterPerSnapshot \nTime per snapshot: $timePerSnapshot \nOutput: $(outDir*outFileName)\n" )
+println( "\nnParticles: $nParticles \nnSnapshots: $nSnapshots \nIterations per snapshot: $iterPerSnapshot \nTime per snapshot: $timePerSave \nOutput: $(outDir*outFileName)\n" )
 println( "Starting $(nSnapshots*iterPerSnapshot) iterations...\n")
 
 time_compute = 0
@@ -145,7 +145,7 @@ for stepNumber in 1:nSnapshots
   if usingCUDA
     time_compute += @elapsed billiard_step_cuda( stepNumber+1 )
   else
-    time_compute += @elapsed billiard_kernel(nParticles, iterPerSnapshot, nSnapshots, timePerSnapshot,
+    time_compute += @elapsed billiard_kernel(nParticles, iterPerSnapshot, nSnapshots, timePerSave,
       circle, lines, pos_x_all, pos_y_all, vel_x_all, vel_y_all,
       region_x_all, region_y_all, collideWith_all, times_all, snapshotNumber_all,
       posSnapshot )
